@@ -1,0 +1,248 @@
+#imports and others
+import pandas as pd
+import os
+import spacy
+import re
+nlp = spacy.load('en_core_web_sm')
+
+#functions
+def make_data(df_name, selected_columns):
+  df = pd.read_csv(df_name)
+  df['score'] = 0.0
+  df = df[selected_columns]
+  return df
+
+def get_min_years(df):
+  df['min_years'] = None
+  for x in range(len(df['body'])):
+    try:
+      doc = nlp(df['body'][x])
+    except Exception as e:
+      continue
+    for ent in doc.ents:
+      if ent.label_ == "DATE" and 'year' in ent.text.lower():
+        for token in ent:
+          if token.pos_ == 'NUM':
+            try:
+              token_float = float(token.text)
+            except ValueError:
+              continue
+            if pd.isna(df['min_years'][x]) or token_float < df['min_years'][x]:
+              df['min_years'][x] = token_float
+
+def score_min_years(df):
+    for idx, row in df.iterrows():
+        try:
+            min_years = float(row['min_years'])
+        except (ValueError, TypeError):
+            df.loc[idx, 'score'] -= 5.0
+            continue
+
+        if min_years <= 1:
+            df.loc[idx, 'score'] += 22.0
+        elif min_years <= 2:
+            df.loc[idx, 'score'] += 10.0
+        elif min_years <= 3:
+            df.loc[idx, 'score'] -= 10.0
+        else:
+            df.loc[idx, 'score'] -= 15.0
+
+    return df
+def score_date(df):
+    for x in range(len(df)):
+        try:
+            if 'minute' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] += 12.0
+            elif 'hour' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] += 10.0
+            elif 'yesterday' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] += 8.0
+            elif '1 day' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] += 8.0
+            elif '2 day' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] += 2.0
+            elif '3 day' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] += 0
+            elif '4 day' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] -= 2.0
+            elif '5 day' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] -= 5.0
+            elif '6 day' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] -= 7.0
+            elif 'wk ago' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] -= 10.0
+            elif 'mo ago' in df['date_posted'][x].lower():
+                df.loc[x, 'score'] -= 115.0
+        except Exception:
+            pass
+
+def score_keyword(df):
+    for x in range(len(df)):
+        try:
+          if 'data' in df['name'][x].lower() and 'analy' in df['name'][x].lower():
+            df['score'][x] += 10.0
+          elif 'data' in df['name'][x].lower() and 'scien' in df['name'][x].lower():
+            df['score'][x] += 10.0
+          elif ('data' in (df['name'][x].lower())):
+            df['score'][x] += 5.0
+          elif ('analyst' in (df['name'][x].lower())):
+            df['score'][x] += 2.0
+          if ('excel' in (df['name'][x].lower())):
+            df['score'][x] += 2.0
+          if ('python' in (df['name'][x].lower())):
+            df['score'][x] += 2.0
+          if (('data entry' and 'entry level') in (df['name'][x].lower())):
+            df['score'][x] -= 12.0
+          elif (('data entry') in (df['name'][x].lower())):
+            df['score'][x] -= 22.0
+          if ('entry level' in (df['name'][x].lower())):
+            df['score'][x] += 25.0
+          elif ('entry' in (df['name'][x].lower())):
+            df['score'][x] += 20.0
+          if ('principal' in (df['name'][x].lower())):
+            df['score'][x] -= 200.0
+          if ('senior' in (df['name'][x].lower())):
+            df['score'][x] -= 200.0
+          if ('sr.' in (df['name'][x].lower())):
+            df['score'][x] -= 200.0
+          if ('lead' in (df['name'][x].lower())):
+            df['score'][x] -= 200.0
+          else:
+            if df['level'][x] == 'Mid-Senior level':
+              df['score'][x] = df['score'][x] - 200.0
+            if df['level'][x] == 'Associate':
+              df['score'][x] = df['score'][x] - 5.0
+        except Exception:
+            pass
+
+def score_pay(df):
+    for x in range(len(df)):
+      try:
+        tmp = df['pay'][x].lower()
+      except:
+        try:
+          tmp = str(df['pay'][x])
+        except:
+          return None
+      try:
+        if ('hr' in (tmp)):
+          numbers = re.findall(r'\d+\.?\d*', tmp)
+          float_numbers = [float(num.replace(',', '')) for num in numbers]
+          lowest_number = min(float_numbers)
+          if lowest_number >= 50:
+            df['score'][x] -= 15.0
+        elif ('k' in (tmp)):
+          numbers = re.findall(r'\d+\.?\d*', tmp)
+          float_numbers = [float(num.replace(',', '')) for num in numbers]
+          lowest_number = min(float_numbers)
+          if lowest_number >= 100:
+            df['score'][x] -= 15.0
+        elif ('yr' in (tmp) or 'year' in (tmp)):
+          numbers = re.findall(r'\d+\.?\d*', tmp)
+          float_numbers = [float(num.replace(',', '')) for num in numbers]
+          lowest_number = min(float_numbers)
+          if lowest_number >= 1000:
+            if lowest_number >= 100:
+              df['score'][x] -= 15.0
+          elif lowest_number >= 100000:
+            df['score'][x] -= 15.0
+      except:
+          pass
+
+# Sites
+
+# LinkedIn
+if os.path.isfile('Broken_LinedIn.csv'):
+  selected_columns = ['score', 'name', 'company', 'location', 'applicants', 'date_posted', 'remote', 'pay', 'level', 'body', 'to_jb-href']
+  linkedin = make_data('Broken_LinedIn.csv', selected_columns)
+  if os.path.isfile('linkedin_boston.csv'):
+    linkedin_boston = make_data('linkedin_boston.csv', selected_columns)
+    linkedin = pd.concat([linkedin, linkedin_boston])
+  if os.path.isfile('linkedin_philly.csv'):
+    linkedin_philly = make_data('linkedin_philly.csv', selected_columns)
+    linkedin = pd.concat([linkedin, linkedin_philly])
+  if os.path.isfile('linkedin_stamford.csvv'):
+    linkedin_stamford = make_data('linkedin_stamford.csv', selected_columns)
+    linkedin = pd.concat([linkedin, linkedin_stamford])
+  get_min_years(linkedin)
+  score_min_years(linkedin)
+  score_date(linkedin)
+  score_keyword(linkedin)
+  score_pay(linkedin)
+
+
+
+# Indeed
+if os.path.isfile('indeed.csv'):
+  selected_columns = ['score', 'name', 'company', 'pay', 'body', 'masters', 'applied', 'to_jb-href']
+  indeed = make_data('indeed.csv', selected_columns)
+  score_keyword(indeed)
+  get_min_years(indeed)
+  score_min_years(indeed)
+  score_pay(indeed)
+  #drop
+  for x in range(len(indeed)):
+    if indeed['masters'][x] is not None:
+      indeed['masters'][x] = str(indeed['masters'][x])
+      if ('master' in indeed['masters'][x].lower()):
+        indeed = indeed.drop(x)
+        x=x-1
+    elif indeed['applied'][x] is not None:
+      indeed['applied'][x] = str(indeed['applied'][x])
+      if 'applied' in indeed['applied'][x].lower():
+        indeed = indeed.drop(x)
+        x=x-1
+
+# ziprecuiter
+if os.path.isfile('ziprecuiter.csv'):
+  selected_columns = ['score', 'name', 'company', 'location', 'date', 'body', 'to_jb-href']
+  ziprecuiter = make_data('ziprecuiter.csv', selected_columns)
+  if os.path.isfile('ziprecuiter_boston.csv'):
+    ziprecuiter_boston = make_data('ziprecuiter_boston.csv', selected_columns)
+    ziprecuiter = pd.concat([ziprecuiter, ziprecuiter_boston])
+  if os.path.isfile('ziprecuiter_philly.csv'):
+    ziprecuiter_philly = make_data('ziprecuiter_philly.csv', selected_columns)
+    ziprecuiter = pd.concat([ziprecuiter, ziprecuiter_philly])
+  score_date(ziprecuiter)
+  score_keyword(ziprecuiter)
+  get_min_years(ziprecuiter)
+  score_min_years(ziprecuiter)
+  score_pay(ziprecuiter)
+
+# handshake
+if os.path.isfile('handshake.csv'):
+  selected_columns = ['score', 'name', 'company', 'date', 'to_jb','to_jb-href']
+  handshake = make_data('handshake.csv', selected_columns)
+  score_keyword(handshake)
+  score_pay(handshake)
+
+# google
+if os.path.isfile('google.csv'):
+  selected_columns = ['score', 'name', 'company', 'location', 'date', 'web-scraper-start-url', 'body1', 'body2']
+  google = make_data('google.csv', selected_columns)
+  google['body'] = google['body1'] + google['body2']
+  score_keyword(google)
+  score_date(google)
+  get_min_years(ziprecuiter)
+  score_min_years(ziprecuiter)
+  score_pay(ziprecuiter)
+
+# Combine Data
+df = pd.DataFrame()
+if os.path.isfile('Broken_LinedIn.csv'):
+  df = pd.concat([df, linkedin], ignore_index=True)
+if os.path.isfile('indeed.csv'):
+  df = pd.concat([df, indeed], ignore_index=True)
+if os.path.isfile('ziprecuiter.csv'):
+  df = pd.concat([df, ziprecuiter], ignore_index=True)
+if os.path.isfile('handshake.csv'):
+  df = pd.concat([df, handshake], ignore_index=True)
+
+# drops
+df = df.drop_duplicates(subset=['name', 'company'], keep=False)
+df['remove'] = 0
+df['company'] = df['company'].astype(str)
+df['remove'] = df['company'].str.lower().apply(lambda x: 1 if 'varsity tutors' in x else 0)
+
+df = df.sort_values(by='score', ascending=False)
+df.to_csv('applications.csv', index=False)
