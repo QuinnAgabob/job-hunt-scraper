@@ -1,0 +1,24 @@
+import pandas as pd
+
+def check_and_append(df, premoved):
+    for index, row in df.iterrows():
+        try:
+            if row['remove'] == 1:
+                is_duplicate = any((row['name'] == pre_row['name']) and (row['company'] == pre_row['company']) for _, pre_row in premoved.iterrows())
+                if not is_duplicate:
+                    premoved = pd.concat([premoved, row.to_frame().transpose()], ignore_index=True)
+        except Exception as e:
+            print(f"Error processing row {index}: {e}")
+    return premoved
+
+applicants = pd.read_csv('applications.csv')
+premoved = pd.read_csv('premoved.csv')
+
+applicants['remove'] = applicants['remove'].astype(int)
+
+premoved = check_and_append(applicants, premoved)
+
+applicants = applicants[~applicants.apply(lambda row: any((row['name'] == pre_row['name']) and (row['company'] == pre_row['company']) for _, pre_row in premoved.iterrows()), axis=1)]
+
+premoved.to_csv('premoved.csv', index=False)
+applicants.to_csv('applications.csv', index=False)
